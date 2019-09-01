@@ -1,0 +1,207 @@
+#!/usr/bin/env python3
+
+import math
+
+
+def main(sys, data_file_path):
+	output = Output(sys)
+	input_data = Input(output, sys.argv, data_file_path).get_data()
+	computer = Computer(output, input_data)
+
+	computer.country()
+	computer.fit1()
+	computer.fit2()
+	computer.correlation()
+
+	output.fflush()
+	output.exit_success()
+
+
+class Computer:
+	def __init__(self, output, data):
+		self._data = data[1]
+		self._output = output
+		self._range = data[0]
+		self._sum_country = []
+
+		sum_country = self._data[0]
+		for country in self._data[1:]:
+			sum_country += country
+		self._sum_country = sum_country.data
+
+	def country(self):
+		self._output.bufferize('Country: {}'.format(', '.join(str(country) for country in self._data)))		
+
+	def fit1(self):
+		ax, bx = self._compute_linear_fit_coefficient(self._range, self._sum_country)
+
+		operand = '+' if bx > 0 else '-'
+		bx = bx / 10**6
+		ax = ax / 10**6
+		f = lambda x: ax*x + bx
+		rm_std = self._compute_root_mean_square_deviation(self._sum_country, f) / 10**6
+
+		self._output.bufferize('Fit1')
+		self._output.bufferize('\tY = {:.2f} X {} {:.2f}'.format(abs(ax), operand, abs(bx)))
+		self._output.bufferize('\tRoot-mean-square deviation: {:.2f}'.format(rm_std))
+		self._output.bufferize('\tPopulation in 2050: {:.2f}'.format(f(2050)))
+
+	def fit2(self):
+		ay, by = self._compute_linear_fit_coefficient(self._sum_country, self._range)
+
+		operand = '+' if by > 0 else '-'
+		ay = ay * 10**6
+		f = lambda y: (-by + y) / ay
+		rm_std = self._compute_root_mean_square_deviation(self._sum_country, f)
+
+		self._output.bufferize('Fit2')
+		self._output.bufferize('\tX = {:.2f} Y {} {:.2f}'.format(abs(ay), operand, abs(by)))
+		self._output.bufferize('\tRoot-mean-square deviation: {:.2f}'.format(rm_std))
+		self._output.bufferize('\tPopulation in 2050: {:.2f}'.format(f(2050)))
+
+	def correlation(self):
+		self._output.bufferize('Correlation: {:.4f}'.format(0))
+
+	def _compute_linear_fit_coefficient(self, la, lb):
+		a_sum, b_sum = 0, 0
+		a_sum_square = 0
+		size = len(self._range)
+		sum_mult = 0
+		x, y = 0, 0
+
+		for a, b in zip(la, lb):
+			a_sum += a
+			b_sum += b
+			sum_mult += a * b
+			a_sum_square += math.pow(a, 2)
+		x = ((size * sum_mult) - (a_sum * b_sum)) / ((size * a_sum_square) - math.pow(a_sum, 2))
+		y = ((b_sum * a_sum_square) - (a_sum * sum_mult)) / ((size * a_sum_square) - math.pow(a_sum, 2))
+		return x, y
+
+	def _compute_root_mean_square_deviation(self, data, f):
+		rm_std = 0
+		size = len(self._range)
+
+		for i in range(size):
+			rm_std += math.pow(data[i] - f(self._range[i]), 2)
+		return math.sqrt(rm_std / size)
+
+
+class Country:
+	def __init__(self, raw_data):
+		self.name = raw_data.pop(0)
+		self.code = raw_data.pop(0)
+		self.data = [float(data) for data in raw_data]
+
+	def __add__(self, other):
+		if not isinstance(other, Country):
+			return self
+		result = [(a + b) for a, b in zip(self.data, other.data)]
+		return Country(['CHILD __add__', 'CHILD __add__'] + result)
+
+	def __str__(self):
+		return self.name
+
+	def __repr__(self):
+		return '{}({})'.format(self.name, self.code)
+
+
+class Input:
+	HELP_ARGUMENT = [
+		['-h'],
+		['--help']
+	]
+	PARSING_END = '\n'
+	PARSING_SEP = ';'
+
+	def __init__(self, output, args, data_file_path):
+		self._args = args[1:]
+		self._data = []
+		self._output = output
+		self._range = []
+
+		self._parse_args(data_file_path)
+
+	def get_data(self):
+		if self._data == [] or self._range == []:
+			self._output.display_error('No data available. All country code are incorrect.')
+			self._output.exit_failure()
+		return (self._range, self._data.copy())
+
+	def _parse_args(self, data_file_path):
+		def _check_args(self):
+			if len(self._args) == 0:
+				self._output.display_error('No argument.')
+				self._output.exit_failure()
+		def _check_help(self):
+			if self._args in self.HELP_ARGUMENT:
+				self._output.exit_with_usage()
+		def _parse_country_code(self, data_file_path):
+			try:
+				with open(data_file_path, 'r') as data_file:
+					raw_data = data_file.read()
+					raw_data = [line.split(self.PARSING_SEP) for line in raw_data.split(self.PARSING_END)]
+			except IOError:
+				self._output.display_error('The data file does not exist.')
+				self._output.exit_failure()
+			try:
+				self._range = [float(value) for value in raw_data[0][2:]]
+				self._data = [
+					Country(country_raw_data)
+					for country_raw_data in raw_data[1:]
+					if country_raw_data[1] in self._args
+				]
+			except:
+				self._output.display_error('Parsing error.')
+				self._output.exit_failure()
+		_check_args(self)
+		_check_help(self)
+		_parse_country_code(self, data_file_path)
+
+
+class Output:
+	EXIT_FAILURE = 84
+	EXIT_SUCCESS = 0
+	USAGE = [
+		'USAGE',
+		'\t{}\t code [...]',
+		'',
+		'DESCRIPTION',
+		'\tcode\tcountry code',
+	]
+
+	def __init__(self, sys):
+		self._buffer = []
+		self._sys = sys
+
+	def bufferize(self, message):
+		self._buffer.append(str(message))
+
+	def clear(self):
+		self._buffer = []
+
+	def display_error(self, message):
+		self._sys.stderr.write('\033[1;37;41mAn error has been raised : ' + message + '\033[0m\n')
+
+	def exit_failure(self):
+		self._sys.exit(self.EXIT_FAILURE)
+
+	def exit_success(self):
+		self._sys.exit(self.EXIT_SUCCESS)
+
+	def exit_with_usage(self):
+		self._sys.stdout.write('\n'.join(self.USAGE).format(self._sys.argv[0]) + '\n')
+		self.exit_success()
+
+	def fflush(self):
+		self._sys.stdout.write('\n'.join(self._buffer) + '\n')
+		self.clear()
+
+
+if __name__ == '__main__':
+	import os
+	import sys
+
+	data_file_path = os.path.dirname(os.path.realpath(__file__)) + '/data/207demography_data.csv'
+
+	main(sys, data_file_path)
